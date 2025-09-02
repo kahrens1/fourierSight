@@ -651,7 +651,7 @@ void fft_compute(fft_instance_t *fft_init, complex_t *data){
                 uint16_t in2 = in1 + bf_span;
                 complex_t temp = data[in1];
                 data[in1] = complex_add(data[in1],complex_mult(data[in2], tf)); //Need to not overwrite this 
-                data[in2] = complex_sub(data[in1],complex_mult(data[in2]),tf)
+                data[in2] = complex_sub(temp,complex_mult(data[in2]),tf)
 
             }
 
