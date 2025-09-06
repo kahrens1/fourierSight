@@ -1,7 +1,8 @@
 import math 
+import numpy as np 
+
 
 fft_sizes = [32,64,128,256,512,1024]
-#filename = "fft_luts.txt"
 
 def generate_bit_rev(i,N_bits):
     rev = 0
@@ -10,6 +11,8 @@ def generate_bit_rev(i,N_bits):
         i  = (i >> 1) 
 
     return rev
+
+#TODO: Collapse into single header file/loop 
 
 for fft_size in fft_sizes:
     filename = f"bit_rev_lut_{fft_size}.h"
@@ -33,5 +36,29 @@ for fft_size in fft_sizes:
             
         f.write("};")
 
+#Code to generate TFs:
 
-#Add Code to generate TFs
+for fft_size in fft_sizes: 
+    filename = f"tf_lut{fft_size}.h"
+    tf_current = np.array([1,0],dtype=float)
+    tf_next = np.zeros(2, dtype=float)
+    d_theta = np.pi / fft_size
+    d_cos = float(np.cos(d_theta))
+    d_sin = float(np.sin(d_theta))
+    
+    with open(filename,"w") as f: 
+        f.write(f"static const complex_t tfs{fft_size}[{int(fft_size/2)}] = ")
+        f.write("{\n")
+       
+        for i in range(int(fft_size/2)): 
+           
+            f.write(f"{{ {tf_current[0]}f, {tf_current[1]}f }}")
+           
+            if i != (fft_size/2) - 1:
+                f.write(",\n")
+           
+            tf_next[0] = d_cos*tf_current[0] - d_sin*tf_current[1]
+            tf_next[1] = d_cos*tf_current[1] + d_sin*tf_current[0]
+            tf_current = tf_next 
+
+        f.write("\n};")
