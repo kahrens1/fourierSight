@@ -19,8 +19,9 @@
 typedef struct {
 
     uint16_t numPoints;
-    complex_t *tfs;
-    uint16_t *bitRevTable;
+    uint8_t numStages;
+    const complex_t *tfs;
+    const uint16_t *bitRevTable;  //TODO: Figure out more memory efficient way for sizes under 256 (these can be uint8_t arrays)
 
 } fft_instance_t;
 

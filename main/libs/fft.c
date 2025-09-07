@@ -2,7 +2,8 @@
 #include"fft_tables.h"
 
 
-static void apply_br(complex_t *data);
+static void apply_br(fft_instance_t *fft_init, complex_t *data);
+
 
 _Bool fft_init(fft_instance_t *fft_init, uint16_t numPoints){
 
@@ -136,27 +137,29 @@ void fft_compute(fft_instance_t *fft_init, complex_t *data){
     uint16_t tf_idx;
     uint16_t blk_ptr;
 
-    if(fft_init->bRevFlag)
-        apply_br(fft_init,data);
+
+
+    apply_br(fft_init,data);
 
     for(uint8_t stage_idx = 0; stage_idx < fft_init->numStages; stage_idx++){
-        numBlocks = numStages / (2^(stage_idx) + 1);
+        // numBlocks = numStages / ((2^(stage_idx)) + 1);
         numBfs = 1 << stage_idx;
         bf_span = 1 << stage_idx;
         blk_step = 1 << (stage_idx + 1);
+        numBlocks = fft_init->numStages >> (stage_idx + 1);
         bf_step = 1;
         //Loop over blocks
         for(uint8_t blk_idx = 0; blk_idx < numBlocks; blk_idx++){
             blk_ptr = blk_idx*blk_step;
             // Loop over BFs in the block
-            for(uint8_t bf_idx = 0; bf_idx numBfs; bf_idx++ ){
+            for(uint8_t bf_idx = 0; bf_idx < numBfs; bf_idx++ ){
                 tf_idx = (bf_idx*fft_init->numPoints) / blk_step; 
                 tf =  fft_init->tfs[tf_idx];
                 in1 = blk_ptr + bf_idx*bf_step;  
                 in2 = in1 + bf_span;
                 temp = data[in1];
                 data[in1] = complex_add(data[in1],complex_mult(data[in2], tf));
-                data[in2] = complex_sub(temp,complex_mult(data[in2],tf))
+                data[in2] = complex_sub(temp,complex_mult(data[in2],tf));
 
             }
 

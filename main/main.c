@@ -10,9 +10,6 @@
 
 void app_main(void)
 {
-    int x;
-    x = foo();
-    printf("%d",x);
 
 
 }
