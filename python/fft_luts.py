@@ -42,23 +42,31 @@ for fft_size in fft_sizes:
     filename = f"tf_lut{fft_size}.h"
     tf_current = np.array([1,0],dtype=float)
     tf_next = np.zeros(2, dtype=float)
-    d_theta = np.pi / fft_size
+    tf = np.zeros(2, dtype=float)
+    d_theta = float(2*np.pi / fft_size)
+    print(f"d_theta = {d_theta}")
     d_cos = float(np.cos(d_theta))
+    print(d_cos)
     d_sin = float(np.sin(d_theta))
+    print(d_sin)
+    theta = float(0)
     
     with open(filename,"w") as f: 
         f.write(f"static const complex_t tfs{fft_size}[{int(fft_size/2)}] = ")
         f.write("{\n")
        
         for i in range(int(fft_size/2)): 
-           
-            f.write(f"{{ {tf_current[0]}f, {tf_current[1]}f }}")
+            tf[0] = np.cos(theta)
+            tf[1] = -np.sin(theta)
+            theta = float(theta + d_theta)
+
+            f.write(f"{{ {tf[0]}f, {tf[1]}f }}")
            
             if i != (fft_size/2) - 1:
                 f.write(",\n")
            
-            tf_next[0] = d_cos*tf_current[0] - d_sin*tf_current[1]
-            tf_next[1] = d_cos*tf_current[1] + d_sin*tf_current[0]
-            tf_current = tf_next 
+            # tf_next[0] = d_cos*tf_current[0] - d_sin*tf_current[1]
+            # tf_next[1] = np.conj(d_cos*tf_current[1] + d_sin*tf_current[0])
+            # tf_current = tf_next 
 
         f.write("\n};")
