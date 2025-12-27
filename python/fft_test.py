@@ -5,7 +5,7 @@ matplotlib.use('TkAgg')
 import matplotlib.pyplot as plt 
 
 Fs = 40e3
-N = 32
+N = 1024
 
 def gen_dt_sin(f,Fs,N):
     Omega = 2*np.pi*f / Fs 
