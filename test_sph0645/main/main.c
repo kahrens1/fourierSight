@@ -1,10 +1,3 @@
-
-/*
- * SPDX-FileCopyrightText: 2021-2024 Espressif Systems (Shanghai) CO LTD
- *
- * SPDX-License-Identifier: Unlicense OR CC0-1.0
- */
-
 #include <stdint.h>
 #include <stdlib.h>
 #include "freertos/FreeRTOS.h"
@@ -12,6 +5,7 @@
 #include "driver/i2s_std.h"
 #include "driver/gpio.h"
 #include "esp_check.h"
+#include "driver/uart.h"
 #include "sdkconfig.h"
 
 /* Set 1 to allocate rx & tx channels in duplex mode on a same I2S controller, they will share the BCLK and WS signal
@@ -33,38 +27,114 @@
 #define EXAMPLE_STD_DIN_IO2         GPIO_NUM_26     // I2S data in io number
 #endif
 
-#define EXAMPLE_BUFF_SIZE               2048
+#define BYTES_PER_SAMP 4
+#define BUFF_SIZE_SAMPS 100
+#define BUFF_SIZE_BYTES BYTES_PER_SAMP*BUFF_SIZE_SAMPS
+#define MASK_SPH0645_VALID_BITS 0xFFFFFF // Data sent in 32 bit packets but only 18 bits of percision
+#define MASK_SPH0645_START_OF_SAMP (0xBE << 18); 
+#define SAMPS_QUEUE_SIZE 4
+#define FRAMES_TO_CAPTURE 1
 
-static i2s_chan_handle_t                tx_chan;        // I2S tx channel handler
-static i2s_chan_handle_t                rx_chan;        // I2S rx channel handler
+static i2s_chan_handle_t rx_chan;        // I2S rx channel handler
+// static SemaphoreHandle_t sem_uart;
+static QueueHandle_t samp_buff_queue;
+static TaskHandle_t uart_task_handle;
+static TaskHandle_t i2s_task_handle;
+// static uint32_t samps_buff[BUFF_SIZE_SAMPS];
+static uint8_t dropped_frames = 0;
+static _Bool bStartFlag; 
+static _Bool bEndFlag;
+const char *sof = "\nStart of Audio Data\n";
+const uint32_t sof_bytes = 0xDEADBEEF;
+const char *eof = "\nEnd of Audio Data\n";
+const uint32_t eof_bytes = 0xDEADBEE4;
 
-static void i2s_example_read_task(void *args)
-{
-    uint8_t *r_buf = (uint8_t *)calloc(1, EXAMPLE_BUFF_SIZE);
-    assert(r_buf); // Check if r_buf allocation success
-    size_t r_bytes = 0;
 
-    /* Enable the RX channel */
-    ESP_ERROR_CHECK(i2s_channel_enable(rx_chan));
 
-    /* ATTENTION: The print and delay in the read task only for monitoring the data by human,
-     * Normally there shouldn't be any delays to ensure a short polling time,
-     * Otherwise the dma buffer will overflow and lead to the data lost */
-    while (1) {
-        /* Read i2s data */
-        if (i2s_channel_read(rx_chan, r_buf, EXAMPLE_BUFF_SIZE, &r_bytes, 1000) == ESP_OK) {
-            printf("Read Task: i2s read %d bytes\n-----------------------------------\n", r_bytes);
-            printf("[0] %x [1] %x [2] %x [3] %x\n[4] %x [5] %x [6] %x [7] %x\n\n",
-                   r_buf[0], r_buf[1], r_buf[2], r_buf[3], r_buf[4], r_buf[5], r_buf[6], r_buf[7]);
-        } else {
-            printf("Read Task: i2s read failed\n");
-        }
-        vTaskDelay(pdMS_TO_TICKS(200));
+static void sph0645_cook_data(uint32_t *samps,size_t num_samps){
+    for(size_t i = 0; i < num_samps; i++){
+        // samps[i] &= MASK_SPH0645_VALID_BITS;
+        // samps[i] |= MASK_SPH0645_START_OF_SAMP;
+        // amps[i] = 0xDEAD1234;
+        
     }
-    free(r_buf);
+}
+
+static void task_i2s_read(void *args)
+{
+
+
+    ESP_ERROR_CHECK(i2s_channel_enable(rx_chan));
+    // static uint32_t samps_buff[BUFF_SIZE_SAMPS];
+    static uint16_t task_cntr = 0;
+    size_t bytes_copied = 0;
+
+   
+    while (1) {
+
+        uint32_t *samps_buff = (uint32_t *)calloc(1,BUFF_SIZE_SAMPS*sizeof(uint32_t));
+        assert(samps_buff != NULL);
+
+        if(task_cntr > FRAMES_TO_CAPTURE){
+            bEndFlag = true;
+            free(samps_buff);
+            break;
+        }
+
+    
+        if (i2s_channel_read(rx_chan, samps_buff, BUFF_SIZE_BYTES, &bytes_copied, portMAX_DELAY) == ESP_OK) { // i2s_channel_read: Returns ESP_OK when number of bytes (BUFF_SIZE_SAMPS) has been copied into the buffer / timeout (1000 TICKS)
+        
+            // sph0645_cook_data(samps_buff, BUFF_SIZE_SAMPS);
+
+            if (xQueueSend(samp_buff_queue,&samps_buff,0) != pdTRUE){
+                free(samps_buff);
+                dropped_frames += 1;
+            }  
+        } 
+        else {
+           //  printf("Read Task: i2s read failed\n");
+        }
+
+        if (task_cntr == 1)
+            bStartFlag = true;
+
+        task_cntr += 1;
+    }
+    
     vTaskDelete(NULL);
 }
 
+static void task_uart_send_i2s_data(void *args){
+   
+    static uint32_t * samp_buff_ptr;
+
+    while(1){
+
+        xQueueReceive(samp_buff_queue, &samp_buff_ptr ,portMAX_DELAY);
+        
+        if (bStartFlag){
+            // uart_write_bytes(UART_NUM_0,sof,strlen(sof));
+            uart_write_bytes(UART_NUM_0,&sof_bytes,sizeof(uint32_t));
+            bStartFlag = false;
+        }
+
+
+        uart_write_bytes(UART_NUM_0,
+                            (const void *)samp_buff_ptr,
+                            BUFF_SIZE_SAMPS * sizeof(uint32_t));
+        free(samp_buff_ptr);
+
+        if (bEndFlag && uxQueueMessagesWaiting(samp_buff_queue) == 0){
+            uart_write_bytes(UART_NUM_0,&eof_bytes,sizeof(uint32_t));
+            // uart_write_bytes(UART_NUM_0,eof,strlen(eof));
+            break;
+        }
+    }   
+
+    vTaskDelete(NULL);
+    return;
+
+}
 
 
 static void i2s_example_init_std_simplex(void)
@@ -74,13 +144,12 @@ static void i2s_example_init_std_simplex(void)
     ESP_ERROR_CHECK(i2s_new_channel(&rx_chan_cfg, NULL, &rx_chan));
 
     i2s_std_config_t rx_std_cfg = {
-        .clk_cfg  = I2S_STD_CLK_DEFAULT_CONFIG(16000),
+        .clk_cfg  = I2S_STD_CLK_DEFAULT_CONFIG(16000), //Sets Audio Sampling rate to 16 kHz. BCLK pin speed = 16 kHz * 32 bits per sample * 1 (we are working with Mono). WS/LRCLK will have speed 16 kHz
         .slot_cfg = I2S_STD_PHILIPS_SLOT_DEFAULT_CONFIG(I2S_DATA_BIT_WIDTH_32BIT, I2S_SLOT_MODE_MONO), //Problem here?
         .gpio_cfg = {
-            .mclk = I2S_GPIO_UNUSED,    // some codecs may require mclk signal, this example doesn't need it
+            .mclk = I2S_GPIO_UNUSED,   
             .bclk = EXAMPLE_STD_BCLK_IO2,
             .ws   = EXAMPLE_STD_WS_IO2,
-            //.dout = EXAMPLE_STD_DOUT_IO2,
             .dout = I2S_GPIO_UNUSED,
             .din  = EXAMPLE_STD_DIN_IO2,
             .invert_flags = {
@@ -90,15 +159,43 @@ static void i2s_example_init_std_simplex(void)
             },
         },
     };
-    /* Default is only receiving left slot in mono mode,
-     * update to right here to show how to change the default configuration */
-     // rx_std_cfg.slot_cfg.slot_mask = I2S_STD_SLOT_RIGHT; 
     ESP_ERROR_CHECK(i2s_channel_init_std_mode(rx_chan, &rx_std_cfg));
+}
+
+static void configure_uart( void ){
+    
+    uart_config_t uart_config = {
+        .baud_rate = 921600,
+        .data_bits = UART_DATA_8_BITS, 
+        .parity = UART_PARITY_DISABLE, 
+        .stop_bits = UART_STOP_BITS_1,
+        .flow_ctrl = UART_HW_FLOWCTRL_DISABLE, 
+        .source_clk = UART_SCLK_APB
+    };
+    
+  
+    uart_param_config(UART_NUM_0, &uart_config);
+    uart_driver_install(UART_NUM_0, 4096, 0, 0, NULL, 0);
+ 
+
 }
 
 void app_main(void)
 {
 
     i2s_example_init_std_simplex();
-    xTaskCreate(i2s_example_read_task, "i2s_example_read_task", 4096, NULL, 5, NULL);
+    configure_uart();
+
+    samp_buff_queue = xQueueCreate(SAMPS_QUEUE_SIZE,sizeof(uint32_t *));
+    assert(samp_buff_queue != NULL);
+
+    // Think I am dropping samples (implement as a queue instead/convert to usbcdc)
+    xTaskCreate(task_i2s_read, "task_i2s_read", 2048, NULL,2,&i2s_task_handle); 
+    xTaskCreate(task_uart_send_i2s_data, "task_uart_send_i2s_data", 2048, NULL, 1, &uart_task_handle); // Task should consume items faster then they are added
+
+    while(1){
+        vTaskDelay(portMAX_DELAY);
+    }
+
+
 }
