@@ -10,7 +10,11 @@ import serial
 PORT = "/dev/ttyUSB0"
 BAUD = 921600
 READ_BUFFER_SIZE = 4096
+SAMPLE_RATE = 16000
+WAV_CONVERSION_FACT = ( 32768 / 131072 )
+WAV_FILE = "test.wav"
 BYTES_PER_SAMPLE = 4 
+NUM_VALID_BITS = 18
 START_OF_FILE = bytearray(b"\xef\xbe\xad\xde") #UART Sent as little endian
 END_OF_FILE = bytearray(b"\xe4\xbe\xad\xde") 
 samps_buf = bytearray()
@@ -20,6 +24,33 @@ end_flag = False
 win_cntr = 0 
 raw_samps = []
 samps_cntr = 0 
+
+
+
+#TODO: Function to convert to the correct format (24-bit, 2's complement, MSB first), then plot
+
+def cook_sph0645(raw_samps): 
+    cooked_samps = []
+    for samp in raw_samps:
+        cooked_samps.append((int.from_bytes(samp,byteorder='little', signed=True) >> (32 - NUM_VALID_BITS) ))
+
+    print(cooked_samps)
+    return cooked_samps
+
+def convert_to_wav(cooked_samps): 
+    
+    samples = np.array(cooked_samps,dtype=float)
+    samples = (samples*WAV_CONVERSION_FACT).astype(np.int16)
+
+
+    with wave.open(WAV_FILE, "w") as wf:
+        wf.setnchannels(1)
+        wf.setsampwidth(2)  
+        wf.setframerate(SAMPLE_RATE)
+        wf.writeframes(samples.tobytes())
+
+    print(f"WAV written to {WAV_FILE}")
+
 
 
 ser = serial.Serial(PORT,BAUD)
@@ -38,7 +69,7 @@ while True:
                 samps_buf.append(samp)
                 win_cntr += 1 
                 if win_cntr == BYTES_PER_SAMPLE: 
-                    raw_samps.append(window)
+                    raw_samps.append(bytes(window))
                     win_cntr = 0  
                     samps_cntr += 1
                     print(f"Win Counter: {samps_cntr}, Window {window}")
@@ -57,17 +88,9 @@ while True:
         break
 
 print(f"Captured {len(samps_buf)} total Samples")
-
-#TODO: Function to convert to the correct format (24-bit, 2's complement, MSB first), then plot
-#def cook_sph0645_data(data): 
-
-
+print("Cooked Samples")
+cooked_samps = cook_sph0645(raw_samps)
+convert_to_wav(cooked_samps)
 
 
-# with wave.open(WAV_FILE, "w") as wf:
-#     wf.setnchannels(CHANNELS)
-#     wf.setsampwidth(2)  # 16 bits = 2 bytes
-#     wf.setframerate(SAMPLE_RATE)
-#     wf.writeframes(samples.tobytes())
 
-# print(f"WAV written to {WAV_FILE}")

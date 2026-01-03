@@ -30,7 +30,7 @@
 #define BYTES_PER_SAMP 4
 #define BUFF_SIZE_SAMPS 100
 #define BUFF_SIZE_BYTES BYTES_PER_SAMP*BUFF_SIZE_SAMPS
-#define MASK_SPH0645_VALID_BITS 0xFFFFFF // Data sent in 32 bit packets but only 18 bits of percision
+#define MASK_SPH0645_VALID_BITS 0xFFFFC // Data sent in 32 bit packets but only 18 bits of percision
 #define MASK_SPH0645_START_OF_SAMP (0xBE << 18); 
 #define SAMPS_QUEUE_SIZE 4
 #define FRAMES_TO_CAPTURE 1
@@ -43,7 +43,7 @@ static TaskHandle_t i2s_task_handle;
 // static uint32_t samps_buff[BUFF_SIZE_SAMPS];
 static uint8_t dropped_frames = 0;
 static _Bool bStartFlag; 
-static _Bool bEndFlag;
+static _Bool bEndFlag = false;
 const char *sof = "\nStart of Audio Data\n";
 const uint32_t sof_bytes = 0xDEADBEEF;
 const char *eof = "\nEnd of Audio Data\n";
@@ -53,7 +53,7 @@ const uint32_t eof_bytes = 0xDEADBEE4;
 
 static void sph0645_cook_data(uint32_t *samps,size_t num_samps){
     for(size_t i = 0; i < num_samps; i++){
-        // samps[i] &= MASK_SPH0645_VALID_BITS;
+        samps[i] &= MASK_SPH0645_VALID_BITS;
         // samps[i] |= MASK_SPH0645_START_OF_SAMP;
         // amps[i] = 0xDEAD1234;
         
@@ -75,16 +75,16 @@ static void task_i2s_read(void *args)
         uint32_t *samps_buff = (uint32_t *)calloc(1,BUFF_SIZE_SAMPS*sizeof(uint32_t));
         assert(samps_buff != NULL);
 
-        if(task_cntr > FRAMES_TO_CAPTURE){
-            bEndFlag = true;
-            free(samps_buff);
-            break;
-        }
+        // if(task_cntr > FRAMES_TO_CAPTURE){
+        //     bEndFlag = true;
+        //     free(samps_buff);
+        //     break;
+        // }
 
     
         if (i2s_channel_read(rx_chan, samps_buff, BUFF_SIZE_BYTES, &bytes_copied, portMAX_DELAY) == ESP_OK) { // i2s_channel_read: Returns ESP_OK when number of bytes (BUFF_SIZE_SAMPS) has been copied into the buffer / timeout (1000 TICKS)
         
-            // sph0645_cook_data(samps_buff, BUFF_SIZE_SAMPS);
+           //  sph0645_cook_data(samps_buff, BUFF_SIZE_SAMPS);
 
             if (xQueueSend(samp_buff_queue,&samps_buff,0) != pdTRUE){
                 free(samps_buff);
@@ -194,6 +194,7 @@ void app_main(void)
     xTaskCreate(task_uart_send_i2s_data, "task_uart_send_i2s_data", 2048, NULL, 1, &uart_task_handle); // Task should consume items faster then they are added
 
     while(1){
+        printf("Dropped Frames %d",dropped_frames);
         vTaskDelay(portMAX_DELAY);
     }
 
