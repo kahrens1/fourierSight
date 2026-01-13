@@ -4,7 +4,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "esp_chip_info.h"
-// #include "esp_flash.h"
+// #include "esp_flash.h" TODO: Add this dep back to CMAKE file (think we need this)
 #include "esp_system.h"
 #include "fft.h"
 #include"samples.h"

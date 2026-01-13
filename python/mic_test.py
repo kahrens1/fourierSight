@@ -1,7 +1,7 @@
 #TODO: Write script to consume UART data from ESP and convert to .wav
 # Actually Read from the UART instead of using Minicom (was the format i sent bits in the same as what I am parsing as (parity/stop bit ect.))
 # Lenght of resulting .wav is not close at all to recording length (I am probably just dropping samples)
-# 
+
 import numpy as np
 import wave
 import struct
