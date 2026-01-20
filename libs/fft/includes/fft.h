@@ -9,11 +9,11 @@
 #define FFT_USE_TFS_LUT
 
 #define FFT_USE_1024_POINT 
-#define FFT_USE_512_POINT 
-#define FFT_USE_256_POINT 
-#define FFT_USE_128_POINT 
-#define FFT_USE_64_POINT 
-#define FFT_USE_32_POINT 
+// #define FFT_USE_512_POINT 
+// #define FFT_USE_256_POINT 
+// #define FFT_USE_128_POINT 
+// #define FFT_USE_64_POINT 
+// #define FFT_USE_32_POINT 
 
 
 typedef struct {
@@ -28,6 +28,7 @@ typedef struct {
 
 _Bool fft_init(fft_instance_t *fft_init, uint16_t numPoints);
 void fft_compute(fft_instance_t *fft_init, complex_t *data);
+void squared_magnitude_compute(fft_instance_t *fft_init,uint32_t *sq_mags,complex_t *data);
 
 
 #endif

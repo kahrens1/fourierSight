@@ -2,13 +2,13 @@
 #include "driver/i2s_std.h"
 #include "driver/gpio.h"
 #include "esp_check.h"
-#include "complex.h"
+
 
 #define SPH0645_NUM_VALID_BITS 18
 
 
 
-void configure_sph0645(i2s_chan_handle_t *rx_chan,const uint16_t f_s){
+void configure_sph0645(i2s_chan_handle_t rx_chan,const uint16_t f_s){
 
     i2s_chan_config_t rx_chan_cfg = I2S_CHANNEL_DEFAULT_CONFIG(I2S_NUM_AUTO, I2S_ROLE_MASTER);
     ESP_ERROR_CHECK(i2s_new_channel(&rx_chan_cfg, NULL, &rx_chan));
@@ -35,8 +35,8 @@ void configure_sph0645(i2s_chan_handle_t *rx_chan,const uint16_t f_s){
 
 void sph0645_cook_data(uint32_t *samps,size_t num_samps){
 
-    int64_t sum_samps;
-    int64_t dc_offset;
+    int64_t sum_samps = 0;
+    int64_t dc_offset = 0;
 
     for(size_t i = 0; i < num_samps; i++){
         samps[i] = samps[i] >> (32 - SPH0645_NUM_VALID_BITS);

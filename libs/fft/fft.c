@@ -1,6 +1,6 @@
 #include"fft.h"
 #include"fft_tables.h"
-#include<stdio.h>
+#include <stdio.h>
 
 
 static void apply_br(fft_instance_t *fft_init, complex_t *data);
@@ -146,17 +146,17 @@ void fft_compute(fft_instance_t *fft_init, complex_t *data){
         blk_step = 1 << (stage_idx + 1);
         numBlocks = fft_init->numPoints >> (stage_idx + 1);
         // bf_step = 1;
-         printf("Stage %d\n",stage_idx);
+        // printf("Stage %d\n",stage_idx);
         //Loop over blocks
         for(uint16_t blk_idx = 0; blk_idx < numBlocks; blk_idx++){
             blk_ptr = blk_idx*blk_step;
-            printf("Block Index %d, Block Pointer %d\n",blk_idx,blk_ptr);
+            // printf("Block Index %d, Block Pointer %d\n",blk_idx,blk_ptr);
             // Loop over BFs in the block
             for(uint16_t bf_idx = 0; bf_idx < numBfs; bf_idx++ ){
-                printf("BF Index %d\n",bf_idx);
+               // printf("BF Index %d\n",bf_idx);
                 tf_idx = (bf_idx*fft_init->numPoints) / blk_step;
                 tf =  fft_init->tfs[tf_idx];
-                printf("TF: Real = %f, TF: Imag: %f\n",tf.re,tf.im);
+                // printf("TF: Real = %f, TF: Imag: %f\n",tf.re,tf.im);
                 in1 = blk_ptr + bf_idx;  
                 in2 = in1 + bf_span;
                 temp = data[in1];
@@ -168,6 +168,14 @@ void fft_compute(fft_instance_t *fft_init, complex_t *data){
         }
 
     }
+}
+
+void squared_magnitude_compute(fft_instance_t *fft_init,uint32_t *sq_mags,complex_t *data){
+    
+    for(uint16_t i = 0; i < fft_init->numPoints; i++){
+        sq_mags[i] = (uint32_t) (data[i].re*data[i].re) + (data[i].im*data[i].im); //sq_mags and data must have the same number of elements
+    }
+
 }
 
 static void apply_br(fft_instance_t *fft_init, complex_t *data){
@@ -185,5 +193,4 @@ static void apply_br(fft_instance_t *fft_init, complex_t *data){
 }
 
 
-//TODO: Add function to compute the magnitude
 

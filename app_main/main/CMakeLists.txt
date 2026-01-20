@@ -1,5 +1,5 @@
 idf_component_register(
     SRCS "main.c" 
      REQUIRES
-        fft
+        fft sph0645 uart
 )

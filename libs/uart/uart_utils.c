@@ -1,4 +1,4 @@
-#include"driver/uart.h"
+#include"uart_utils.h"
 
 void configure_uart(const uint32_t baud){ //Note: Hardcoded to UART Channel 0 
     
