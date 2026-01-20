@@ -185,3 +185,5 @@ static void apply_br(fft_instance_t *fft_init, complex_t *data){
 }
 
 
+//TODO: Add function to compute the magnitude
+

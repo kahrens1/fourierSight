@@ -103,7 +103,7 @@ class sph0645:
     
         f = np.linspace(-self.Fs/2,self.Fs/2,self.FFT_SIZE, endpoint=False)
         self.ax.set_xlim(-self.Fs/2,self.Fs/2)
-        self.ax.set_ylim(0,500)
+        self.ax.set_ylim(0,300)
         return f
 
     def update_fft_plot(self,frame): 
@@ -114,11 +114,13 @@ class sph0645:
             self.fft_line.set_ydata(np.abs(X))
 
     
-    def ani_fft_plot(self): 
-        ani = animation.FuncAnimation(self.fig,self.update_fft_plot,interval=20,cache_frame_data=False)
-        plt.show()
-
-
+    def ani_fft_plot(self):  
+        try: 
+            ani = animation.FuncAnimation(self.fig,self.update_fft_plot,interval=20,cache_frame_data=False)
+            plt.show()
+        except KeyboardInterrupt: 
+            ani.event_source.stop()
+    
     def cook_samples(self): 
 
         for samp in self.raw_samps:
@@ -141,10 +143,7 @@ class sph0645:
 
         print(f"WAV written to {self.wav_file}")
 
-
-
-
-
+#TODO: Increase the sampling rate, Record the Audio Simeltaneously 
 
 if __name__ == "__main__": 
     
@@ -155,7 +154,7 @@ if __name__ == "__main__":
     # mic.read_audio_data()
     # mic.cook_samples()
     # mic.convert_to_wav()
-    #Take fft of single window see what happens
+ 
     #FFT Vis
 
     threading.Thread(target=mic.stream_audio_data, daemon=True).start()
