@@ -15,6 +15,7 @@ class sph0645:
     Fs = 16000
     WAV_CONVERSION_FACT = ( 32768 / 131072 )
     BYTES_PER_SAMPLE = 4 
+    BYTES_PER_BIN = 8 
     NUM_VALID_BITS = 18
     START_OF_FILE = bytearray(b"\xef\xbe\xad\xde") #UART Sent as little endian
     FFT_SIZE = 1024
@@ -26,6 +27,7 @@ class sph0645:
         self.wav_file = wav_file 
         self.samps_buf = bytearray()
         self.window = bytearray(4)
+        self.fft_bin_window = bytearray(8)
         self.start_flag = True
         self.end_flag = False
         self.first_run_f = False 
@@ -34,11 +36,12 @@ class sph0645:
         self.cooked_samples = []
         self.samps_cntr = 0 
         self.fft_samps_queue = Queue(maxsize=self.QUEUE_SIZE)
+        self.fft_data_queue = Queue(maxsize=self.QUEUE_SIZE)
         self.dropped_fft_frames = 0
-        self.fig, self.ax = plt.subplots()
-        
+        self.fig, self.ax = plt.subplots()    
         f = self.init_fft_plot()
         self.fft_line, = self.ax.plot(f,np.zeros(self.FFT_SIZE))
+        self.fft_data = []
 
     def read_audio_data(self): 
 
@@ -69,8 +72,6 @@ class sph0645:
 
     def stream_audio_data(self): 
         print("Press CTRL+C to end Streaming")
-        
-
         while True: 
             try: 
                 cooked_samps = []
@@ -86,10 +87,10 @@ class sph0645:
                         self.samps_cntr += 1
                 
                 fft_samps = np.array(cooked_samps)
-                fft_samps = fft_samps - np.mean(fft_samps)
-                fft_samps =  fft_samps / max(np.abs(fft_samps))
+                #fft_samps = fft_samps - np.mean(fft_samps)
+                #fft_samps =  fft_samps / max(np.abs(fft_samps))
 
-                if not self.fft_samps_queue.full(): #Getting more than 1024 samples
+                if not self.fft_samps_queue.full(): 
                     self.fft_samps_queue.put(fft_samps)
                 else:
                     self.dropped_fft_frames += 1
@@ -98,12 +99,50 @@ class sph0645:
                 print(f"Streaming Stopped, Dropped {self.dropped_fft_frames} Frames")
                 break
 
-    
+    def stream_fft_data(self): 
+        
+        while True: 
+            try: 
+                samps = self.ser_port.read(self.READ_BUFFER_SIZE*2)
+                #print(samps) #Debug
+                for samp in samps: 
+                    self.window.pop(0) #Remove the item at index 0 
+                    self.window.append(samp) #Append incoming sample to end of window
+                    self.fft_bin_window.pop(0)
+                    self.fft_bin_window.append(samp)
+
+                    if self.start_flag: 
+                        self.win_cntr += 1 
+                        if self.win_cntr == self.BYTES_PER_BIN: 
+                            self.fft_data.append(self.cook_fft_sample(self.fft_bin_window))
+                            self.win_cntr = 0  
+                            self.samps_cntr += 1
+                    
+                    if self.samps_cntr == self.FFT_SIZE: 
+        
+                        if not self.fft_data_queue.full(): 
+                            self.fft_data_queue.put(self.fft_data)
+                        else:
+                            self.dropped_fft_frames += 1
+        
+                        self.fft_data = []
+                        self.start_flag = False
+                        self.win_cntr = 0
+                        self.samps_cntr = 0
+
+                    if self.window == self.START_OF_FILE:
+                        print("Found FFT Frame")
+                        self.start_flag = True
+            
+            except KeyboardInterrupt: 
+                print("Streaming Stopped")
+                break
+
     def init_fft_plot(self): 
     
         f = np.linspace(-self.Fs/2,self.Fs/2,self.FFT_SIZE, endpoint=False)
         self.ax.set_xlim(-self.Fs/2,self.Fs/2)
-        self.ax.set_ylim(0,300)
+        self.ax.set_ylim(0,0.1e12)
         return f
 
     def update_fft_plot(self,frame): 
@@ -112,7 +151,6 @@ class sph0645:
             x = x[0:1024]
             X = np.fft.fftshift(np.fft.fft(x))
             self.fft_line.set_ydata(np.abs(X))
-
     
     def ani_fft_plot(self):  
         try: 
@@ -121,13 +159,34 @@ class sph0645:
         except KeyboardInterrupt: 
             ani.event_source.stop()
     
-    def cook_samples(self): 
+    def update_fft_plot_fft_data(self,frame): 
+        if not self.fft_data_queue.empty(): 
+            X = self.fft_data_queue.get() 
+            X = np.array(X)
+            X = np.fft.fftshift(X)
+            print(X)
+            self.fft_line.set_ydata(X)
+        
+    def ani_fft_plot_fft_data(self):  
+        try: 
+            ani = animation.FuncAnimation(self.fig,self.update_fft_plot_fft_data,interval=20,cache_frame_data=False)
+            plt.show()
+        except KeyboardInterrupt: 
+            ani.event_source.stop()
+    
 
+    def cook_samples(self): 
         for samp in self.raw_samps:
             self.cooked_samples.append((int.from_bytes(samp,byteorder='little', signed=True) >> (32 - self.NUM_VALID_BITS) ))
 
     def cook_sample(self,samp):
-        return int.from_bytes(samp,byteorder='little', signed=True) >> (32 - self.NUM_VALID_BITS) 
+        #return int.from_bytes(samp,byteorder='little', signed=True) >> (32 - self.NUM_VALID_BITS)
+        return int.from_bytes(samp,byteorder='little', signed=True)
+
+    
+    def cook_fft_sample(self,samp): 
+        return int.from_bytes(samp,byteorder='little',signed=False)
+
 
     def convert_to_wav(self): 
             
@@ -155,11 +214,15 @@ if __name__ == "__main__":
     # mic.cook_samples()
     # mic.convert_to_wav()
  
-    #FFT Vis
+    #FFT Vis: We compute FFT
 
-    threading.Thread(target=mic.stream_audio_data, daemon=True).start()
-    mic.ani_fft_plot()
+    # threading.Thread(target=mic.stream_audio_data, daemon=True).start()
+    # mic.ani_fft_plot()
+    
+    # FFT Streaming: ESP Computes FFT
 
+    threading.Thread(target=mic.stream_fft_data, daemon=True).start()
+    mic.ani_fft_plot_fft_data()
 
 
 

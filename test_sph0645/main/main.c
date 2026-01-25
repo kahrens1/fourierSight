@@ -7,40 +7,21 @@
 #include "esp_check.h"
 #include "driver/uart.h"
 #include "sdkconfig.h"
+#include "driver/i2s_std.h"
 
-/* Set 1 to allocate rx & tx channels in duplex mode on a same I2S controller, they will share the BCLK and WS signal
- * Set 0 to allocate rx & tx channels in simplex mode, these two channels will be totally separated,
- * Specifically, due to the hardware limitation, the simplex rx & tx channels can't be registered on the same controllers on ESP32 and ESP32-S2,
- * and ESP32-S2 has only one I2S controller, so it can't allocate two simplex channels */
-#define CONFIG_USE_DUPLEX 0
-#define EXAMPLE_I2S_DUPLEX_MODE         CONFIG_USE_DUPLEX
-
-#define EXAMPLE_STD_BCLK_IO1        GPIO_NUM_4      // I2S bit clock io number
-#define EXAMPLE_STD_WS_IO1          GPIO_NUM_5      // I2S word select io number
-#define EXAMPLE_STD_DOUT_IO1        GPIO_NUM_18     // I2S data out io number
-#define EXAMPLE_STD_DIN_IO1         GPIO_NUM_19     // I2S data in io number
-
-#if !EXAMPLE_I2S_DUPLEX_MODE
-#define EXAMPLE_STD_BCLK_IO2        GPIO_NUM_22     // I2S bit clock io number
-#define EXAMPLE_STD_WS_IO2          GPIO_NUM_23     // I2S word select io number
-#define EXAMPLE_STD_DOUT_IO2        GPIO_NUM_25     // I2S data out io number
-#define EXAMPLE_STD_DIN_IO2         GPIO_NUM_26     // I2S data in io number
-#endif
 
 #define BYTES_PER_SAMP 4
 #define BUFF_SIZE_SAMPS 100
 #define BUFF_SIZE_BYTES BYTES_PER_SAMP*BUFF_SIZE_SAMPS
 #define MASK_SPH0645_VALID_BITS 0xFFFFC // Data sent in 32 bit packets but only 18 bits of percision
-#define MASK_SPH0645_START_OF_SAMP (0xBE << 18); 
 #define SAMPS_QUEUE_SIZE 4
-#define FRAMES_TO_CAPTURE 1
+#define SPH0645_NUM_VALID_BITS 18
+#define SAMP_NORM_FACT 19
 
 static i2s_chan_handle_t rx_chan;        // I2S rx channel handler
-// static SemaphoreHandle_t sem_uart;
 static QueueHandle_t samp_buff_queue;
 static TaskHandle_t uart_task_handle;
 static TaskHandle_t i2s_task_handle;
-// static uint32_t samps_buff[BUFF_SIZE_SAMPS];
 static uint8_t dropped_frames = 0;
 static _Bool bStartFlag; 
 static _Bool bEndFlag = false;
@@ -49,15 +30,40 @@ const uint32_t sof_bytes = 0xDEADBEEF;
 const char *eof = "\nEnd of Audio Data\n";
 const uint32_t eof_bytes = 0xDEADBEE4;
 
-
-
 static void sph0645_cook_data(uint32_t *samps,size_t num_samps){
+
+    int32_t *samples = (int32_t *) samps;
+    int64_t sum_samps = 0;
+    int64_t dc_offset = 0;
+    uint32_t max_val = 0; 
+    int32_t scale;
+
     for(size_t i = 0; i < num_samps; i++){
-        samps[i] &= MASK_SPH0645_VALID_BITS;
-        // samps[i] |= MASK_SPH0645_START_OF_SAMP;
-        // amps[i] = 0xDEAD1234;
-        
+        samples[i] = samples[i] >> (32 - SPH0645_NUM_VALID_BITS);
+        sum_samps += samples[i];
     }
+
+    dc_offset = sum_samps / num_samps;
+    
+    // Subtract DC offset and peak search
+    for(size_t i = 0; i < num_samps; i++){
+        samples[i] -= dc_offset;
+
+        if(abs(samples[i]) > max_val){
+            max_val = samples[i];
+        }
+    }
+
+    // if(max_val == 0)
+    //     return;
+
+    // scale = (1 << 30) / max_val; // Fixed point Q30
+
+    // // Normalize
+    // for(size_t i = 0; i < num_samps; i++){
+    //     samples[i] = (samples[i]*scale) >> 30;
+    // }
+
 }
 
 static void task_i2s_read(void *args)
@@ -65,7 +71,6 @@ static void task_i2s_read(void *args)
 
 
     ESP_ERROR_CHECK(i2s_channel_enable(rx_chan));
-    // static uint32_t samps_buff[BUFF_SIZE_SAMPS];
     static uint16_t task_cntr = 0;
     size_t bytes_copied = 0;
 
@@ -75,16 +80,9 @@ static void task_i2s_read(void *args)
         uint32_t *samps_buff = (uint32_t *)calloc(1,BUFF_SIZE_SAMPS*sizeof(uint32_t));
         assert(samps_buff != NULL);
 
-        // if(task_cntr > FRAMES_TO_CAPTURE){
-        //     bEndFlag = true;
-        //     free(samps_buff);
-        //     break;
-        // }
-
-    
         if (i2s_channel_read(rx_chan, samps_buff, BUFF_SIZE_BYTES, &bytes_copied, portMAX_DELAY) == ESP_OK) { // i2s_channel_read: Returns ESP_OK when number of bytes (BUFF_SIZE_SAMPS) has been copied into the buffer / timeout (1000 TICKS)
         
-           //  sph0645_cook_data(samps_buff, BUFF_SIZE_SAMPS);
+            sph0645_cook_data(samps_buff, BUFF_SIZE_SAMPS);
 
             if (xQueueSend(samp_buff_queue,&samps_buff,0) != pdTRUE){
                 free(samps_buff);
@@ -92,7 +90,7 @@ static void task_i2s_read(void *args)
             }  
         } 
         else {
-           //  printf("Read Task: i2s read failed\n");
+            printf("Read Task: i2s read failed\n");
         }
 
         if (task_cntr == 1)
@@ -126,7 +124,6 @@ static void task_uart_send_i2s_data(void *args){
 
         if (bEndFlag && uxQueueMessagesWaiting(samp_buff_queue) == 0){
             uart_write_bytes(UART_NUM_0,&eof_bytes,sizeof(uint32_t));
-            // uart_write_bytes(UART_NUM_0,eof,strlen(eof));
             break;
         }
     }   
@@ -145,13 +142,13 @@ static void i2s_example_init_std_simplex(void)
 
     i2s_std_config_t rx_std_cfg = {
         .clk_cfg  = I2S_STD_CLK_DEFAULT_CONFIG(16000), //Sets Audio Sampling rate to 16 kHz. BCLK pin speed = 16 kHz * 32 bits per sample * 1 (we are working with Mono). WS/LRCLK will have speed 16 kHz
-        .slot_cfg = I2S_STD_PHILIPS_SLOT_DEFAULT_CONFIG(I2S_DATA_BIT_WIDTH_32BIT, I2S_SLOT_MODE_MONO), //Problem here?
+        .slot_cfg = I2S_STD_PHILIPS_SLOT_DEFAULT_CONFIG(I2S_DATA_BIT_WIDTH_32BIT, I2S_SLOT_MODE_MONO), 
         .gpio_cfg = {
             .mclk = I2S_GPIO_UNUSED,   
-            .bclk = EXAMPLE_STD_BCLK_IO2,
-            .ws   = EXAMPLE_STD_WS_IO2,
+            .bclk = GPIO_NUM_22,
+            .ws   = GPIO_NUM_23,
             .dout = I2S_GPIO_UNUSED,
-            .din  = EXAMPLE_STD_DIN_IO2,
+            .din  = GPIO_NUM_26,
             .invert_flags = {
                 .mclk_inv = false,
                 .bclk_inv = false,
@@ -188,8 +185,6 @@ void app_main(void)
 
     samp_buff_queue = xQueueCreate(SAMPS_QUEUE_SIZE,sizeof(uint32_t *));
     assert(samp_buff_queue != NULL);
-
-    // Think I am dropping samples (implement as a queue instead/convert to usbcdc)
     xTaskCreate(task_i2s_read, "task_i2s_read", 2048, NULL,2,&i2s_task_handle); 
     xTaskCreate(task_uart_send_i2s_data, "task_uart_send_i2s_data", 2048, NULL, 1, &uart_task_handle); // Task should consume items faster then they are added
 

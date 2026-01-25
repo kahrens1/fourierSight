@@ -28,7 +28,7 @@ typedef struct {
 
 _Bool fft_init(fft_instance_t *fft_init, uint16_t numPoints);
 void fft_compute(fft_instance_t *fft_init, complex_t *data);
-void squared_magnitude_compute(fft_instance_t *fft_init,uint32_t *sq_mags,complex_t *data);
+void squared_magnitude_compute(fft_instance_t *fft_init,uint64_t *sq_mags,complex_t *data);
 
 
 #endif

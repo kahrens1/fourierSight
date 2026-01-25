@@ -170,10 +170,10 @@ void fft_compute(fft_instance_t *fft_init, complex_t *data){
     }
 }
 
-void squared_magnitude_compute(fft_instance_t *fft_init,uint32_t *sq_mags,complex_t *data){
+void squared_magnitude_compute(fft_instance_t *fft_init,uint64_t *sq_mags,complex_t *data){
     
     for(uint16_t i = 0; i < fft_init->numPoints; i++){
-        sq_mags[i] = (uint32_t) (data[i].re*data[i].re) + (data[i].im*data[i].im); //sq_mags and data must have the same number of elements
+        sq_mags[i] = (uint64_t) (data[i].re*data[i].re) + (data[i].im*data[i].im); //sq_mags and data must have the same number of elements
     }
 
 }

@@ -8,10 +8,10 @@
 
 
 
-void configure_sph0645(i2s_chan_handle_t rx_chan,const uint16_t f_s){
+void configure_sph0645(i2s_chan_handle_t *rx_chan,const uint16_t f_s){
 
     i2s_chan_config_t rx_chan_cfg = I2S_CHANNEL_DEFAULT_CONFIG(I2S_NUM_AUTO, I2S_ROLE_MASTER);
-    ESP_ERROR_CHECK(i2s_new_channel(&rx_chan_cfg, NULL, &rx_chan));
+    ESP_ERROR_CHECK(i2s_new_channel(&rx_chan_cfg, NULL, rx_chan));
 
     i2s_std_config_t rx_std_cfg = {
         .clk_cfg  = I2S_STD_CLK_DEFAULT_CONFIG(f_s), //BCLK pin speed =  Fs * 32 bits per sample * 1 (we are working with Mono). WS/LRCLK will have speed 16 kHz
@@ -30,33 +30,34 @@ void configure_sph0645(i2s_chan_handle_t rx_chan,const uint16_t f_s){
         },
     };
 
-    ESP_ERROR_CHECK(i2s_channel_init_std_mode(rx_chan, &rx_std_cfg));
+    ESP_ERROR_CHECK(i2s_channel_init_std_mode(*rx_chan, &rx_std_cfg));
 }
 
 void sph0645_cook_data(uint32_t *samps,size_t num_samps){
 
+    int32_t *samples = (int32_t *) samps;
     int64_t sum_samps = 0;
     int64_t dc_offset = 0;
 
     for(size_t i = 0; i < num_samps; i++){
-        samps[i] = samps[i] >> (32 - SPH0645_NUM_VALID_BITS);
-        sum_samps += samps[i];
+        samples[i] = samples[i] >> (32 - SPH0645_NUM_VALID_BITS);
+        sum_samps += samples[i];
     }
    
     dc_offset = sum_samps / num_samps;
 
     for(size_t i = 0; i < num_samps; i++){
-        samps[i] -= dc_offset;
+        samples[i] -= dc_offset;
     }
-
-    // Need to add peak find ??
 
 }
 
 void convert_to_complex(uint32_t *samps,complex_t *complex_samps,size_t num_samps){ 
 
+    int32_t *samples = (int32_t *) samps;
+
     for(size_t i = 0; i < num_samps; i++){
-        complex_samps[i].re = samps[i];
+        complex_samps[i].re = (float) samples[i];
         complex_samps[i].im = 0;
     }
 
